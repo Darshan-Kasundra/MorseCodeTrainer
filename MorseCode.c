@@ -27,8 +27,7 @@ void game_State(void);
 void game_over_State(void);
 
 volatile int counter = 0; // binary counter to be displayed
-volatile int ones_digit = GAME_TIME%10; // decimal digit to be displayed
-volatile int tens_digit = GAME_TIME/10;
+volatile int game_time = GAME_TIME;
 volatile int KEY_dir = -1; // digit counter direction
 volatile int timer_state = 0;
 volatile int home = 1;
@@ -905,29 +904,11 @@ void itimer_ISR(void){
     int new_digit;
     volatile int * timer_ptr = (int *) TIMER_BASE;
     *timer_ptr = 0; // clear the interrupt
-    new_digit = ones_digit + KEY_dir; // inc/dec the digit
-    if (new_digit < 10 && new_digit > -1) {
-        ones_digit = new_digit; // decimal (0 to 9)
-    }
-    
-    if (new_digit >= 10) {
-        ones_digit = 0;
-        tens_digit = tens_digit + 1;
-    } else if (new_digit < 0) {
-        ones_digit = 9;
-        tens_digit = tens_digit - 1;
-    }
-    
-    if (tens_digit > 10){
-        tens_digit = 0;
-    } else if (tens_digit < 0) {
-        tens_digit = 9;
-    }
-
-    if(10*tens_digit + ones_digit == 0){
+    if(game_time == 0){
         game = 0;
         game_over = 1;
     }
+	game_time--;
     set_HEX();
 }
 
@@ -979,6 +960,9 @@ void set_PS2(void){
 }
 
 void set_HEX(void){
+	int ones_digit = game_time%10; // decimal digit to be displayed
+	int tens_digit = game_time/10;
+
     int ones_hex = bit_codes[ones_digit];
     int tens_hex = bit_codes[tens_digit];
 
@@ -1005,6 +989,8 @@ void game_State(void) {
     *HEX3_HEX0_ptr = 0x0;
     *HEX5_HEX4_ptr = 0x0;
 
+	game_time = GAME_TIME;
+
     clear_screen();
     draw_background(0, 0, mode1); // Draw mode1 bg on back buffer
     wait_for_vsync(); // Swap buffers to display the homepage	
@@ -1016,8 +1002,7 @@ void game_State(void) {
     }
 
     *(timer_ptr + 1) = 0x0;
-    tens_digit = 0;
-    ones_digit = 0;
+    game_time = 0;
     timer_state = 0;
 }
 
