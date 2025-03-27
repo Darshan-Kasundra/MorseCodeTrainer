@@ -10,6 +10,8 @@
 #define TIMER_BASE 0xFF202000
 #define KEY_BASE 0xFF200050
 #define PS2_BASE 0xFF200100
+#define AUDIO_BASE 0xFF203040
+#define FIFO_SAMPLE_RATE 8000
 
 
 
@@ -19,12 +21,19 @@ void set_itimer(void);
 void set_KEY(void);
 void set_HEX(void);
 void set_PS2(void);
+void set_Audio_off(void);
+void set_Audio_on(void);
 void itimer_ISR(void);
 void PS2_ISR(void);
 void KEY_ISR(void);
+void audio_ISR(void);
 void home_State(void);
 void game_State(void);
 void game_over_State(void);
+void correct_check(int letter);
+void play_morse_code(int letter);
+void draw_dot(int x, int y);
+void draw_dash(int x, int y);
 
 volatile int counter = 0; // binary counter to be displayed
 volatile int game_time = GAME_TIME;
@@ -33,6 +42,10 @@ volatile int timer_state = 0;
 volatile int home = 1;
 volatile int game = 0;
 volatile int game_over = 0;
+volatile int samples_to_send = 0;
+volatile int frequency_morse_code = 800;
+volatile int audio_index = 0;
+volatile int audio_on_off = 0;
 
 volatile int *KEY_ptr = (int *) KEY_BASE;
 volatile int *LEDR_ptr = (int *) LEDR_BASE;
@@ -40,11 +53,13 @@ volatile int *HEX3_HEX0_ptr = (int *) HEX3_HEX0_BASE;
 volatile int *HEX5_HEX4_ptr = (int *) HEX5_HEX4_BASE;
 volatile int *timer_ptr = (int *) TIMER_BASE;
 volatile int *ps2_ptr = (int *) PS2_BASE;
+volatile int *audio_ptr = (int *) AUDIO_BASE;
 
 // 7-segment codes for digits 0, 1, ..., 9
 int bit_codes[] = {0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x67};
 
-int current_morse_code[] = {0, 0, 0, 0};
+volatile int current_morse_code[] = {0, 0, 0, 0};
+volatile int output_morse_code[] = {0, 0, 0, 0, 0, 0, 0};
 volatile int code_index = 0;
 
 const int homepage[240][320] = {
@@ -811,8 +826,8 @@ const int morse[26][4] = {
 
 volatile int pixel_buffer_start;
 
-short int Buffer1[240][320];
-short int Buffer2[240][320];
+short int Buffer1[240][512];
+short int Buffer2[240][512];
 
 volatile int *VGA_start;
 
@@ -879,7 +894,7 @@ int main(void) {
     __asm__ volatile ("csrr %0, mie" : "=r"(mie_value));
     __asm__ volatile ("csrc mie, %0" :: "r"(mie_value));
 
-    mie_value = 0x450000; // KEY, itimer, mtimer, SW interrupts
+    mie_value = 0x650000; // KEY, itimer, mtimer, SW, audio interrupts
     // set interrupt enables
     __asm__ volatile ("csrs mie, %0" :: "r"(mie_value));
 
@@ -930,11 +945,44 @@ void handler (void){
         KEY_ISR();
     } else if (mcause_value == 0x80000016) {
         PS2_ISR();
-    }
+    } else if (mcause_value == 0x80000015) {
+		audio_ISR();
+	}
+}
+
+void audio_ISR(void){
+	int count = FIFO_SAMPLE_RATE/frequency_morse_code;
+	if (samples_to_send > 0){
+		if(((*(audio_ptr + 1) >> 16) & 0xFF) > (count)){
+            for(int i = 0; i < count/2; i++){
+                *(audio_ptr + 2) = audio_on_off;
+                *(audio_ptr + 3) = audio_on_off;
+            }
+
+            for(int i = 0; i < count/2; i++){
+                *(audio_ptr + 2) = 0x0;
+                *(audio_ptr + 3) = 0x0;
+            }
+        }
+		samples_to_send -= count;
+	} else if(samples_to_send <= 0) {
+		if(audio_index > 6){
+			set_Audio_off();
+		} else {
+			int code = output_morse_code[audio_index];
+			if(code == 0){
+				audio_on_off = 0;
+				samples_to_send = FIFO_SAMPLE_RATE;
+			} else {
+				audio_on_off = 0xFFFFFF;
+				samples_to_send = code*FIFO_SAMPLE_RATE;
+			}
+			audio_index++;
+		}
+	}
 }
 
 void itimer_ISR(void){
-    int new_digit;
     volatile int * timer_ptr = (int *) TIMER_BASE;
     *timer_ptr = 0; // clear the interrupt
     if(game_time == 0){
@@ -949,9 +997,20 @@ void KEY_ISR(void){
     int pressed;
     pressed = *(KEY_ptr + 3); // read EdgeCapture
     *(KEY_ptr + 3) = pressed; // clear EdgeCapture register
-    home = 1;
-    game_over = 0;
-    //KEY_dir = -KEY_dir; // reverse counting direction
+	play_morse_code(7);
+	draw_background(0, 0, homepage);
+	draw_dash(50, 50);
+	draw_dot(58, 50);
+	wait_for_vsync();
+}
+
+void play_morse_code(int letter){
+	for(int j = 0; j < 4; j++){	
+		output_morse_code[2*j] = morse[letter][j];
+	}
+
+	audio_index = 0;
+	set_Audio_on();
 }
 
 void PS2_ISR(void) {
@@ -1012,8 +1071,8 @@ void PS2_ISR(void) {
 						code_index++;
 					}
 					still_left = 0;
-					counter = 0;
 				}
+				counter = 0;
 			}
 		}
 	}
@@ -1052,6 +1111,14 @@ void set_KEY(void){
 
 void set_PS2(void){
     *(ps2_ptr + 1) = 0b1;
+}
+
+void set_Audio_on(void) {
+	*(audio_ptr) = 0b10;
+}
+
+void set_Audio_off(void){
+	*(audio_ptr) = 0b00;
 }
 
 void set_HEX(void){
@@ -1121,9 +1188,31 @@ void game_over_State(void) {
     clear_screen();
     draw_background(0,0, gameOverPage);
     wait_for_vsync(); // Swap buffers to display the homepage
+	counter = 0;
 
     while(game_over){
 
     }
 
+}
+
+void draw_dot(int x, int y){
+	int width = 6;
+
+	for(int i = 0; i < width; i++){
+		for(int j = 0; j < width; j++){
+			plot_pixel(x + j, y + i, 0xFFFF);
+		}
+	}
+}
+
+void draw_dash(int x, int y){
+	int width = 6;
+	int height = 3;
+
+	for(int i = 0; i < height; i++){
+		for(int j = 0; j < width; j++){
+			plot_pixel(x + j, y + i, 0xFFFF);
+		}
+	}
 }
