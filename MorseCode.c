@@ -12,6 +12,10 @@
 #define PS2_BASE 0xFF200100
 #define AUDIO_BASE 0xFF203040
 #define FIFO_SAMPLE_RATE 8000
+#define DOT_WIDTH 7
+#define DASH_WIDTH 12
+#define DASH_HEIGHT 3
+#define SPACE_WIDTH 5
 
 
 
@@ -4314,25 +4318,16 @@ void PS2_ISR(void) {
 		} 
 
 		if(home){
-			if(data == 0xF0){
-				ps2_data = *(ps2_ptr);
-				data = ps2_data & 0xFF;
-				if(data == 0x16){
-					game = 1;
-					home = 0;
-				}
+			if(data == 0x16){
+				game = 1;
+				home = 0;
 			}
 		}
 
 		if(game_over) {
-			if(data == 0xF0){
-				ps2_data = *(ps2_ptr);
-				data = ps2_data & 0xFF;
-				if(data == 0x16){
-					home = 1;
-    				game_over = 0;
-				}
-				still_left = 0;
+			if(data == 0x16){
+				home = 1;
+				game_over = 0;
 			}
 		}
 		
@@ -4349,17 +4344,12 @@ void PS2_ISR(void) {
 			if(data == 0x3A){
 				counter += 1;
 			} else if(data == 0xF0){
-				ps2_data = *(ps2_ptr);
-				data = ps2_data & 0xFF;
-				if(data == 0x3A){
-					if(counter < 3 && counter > 0){
-						current_morse_code[code_index] = 1;
-						code_index++;
-					} else if(counter < 15 && counter > 5) {
-						current_morse_code[code_index] = 3;
-						code_index++;
-					}
-					still_left = 0;
+				if(counter < 3 && counter > 0){
+					current_morse_code[code_index] = 1;
+					code_index++;
+				} else if(counter < 15 && counter > 5) {
+					current_morse_code[code_index] = 3;
+					code_index++;
 				}
 				counter = 0;
 			}
@@ -4536,6 +4526,20 @@ void draw_dash(int x, int y){
 	for(int i = 0; i < height; i++){
 		for(int j = 0; j < width; j++){
 			plot_pixel(x + j, y + i, 0xFFFF);
+		}
+	}
+}
+
+void draw_current_morse_code(int x, int y){
+	int temp_x = x;
+	int temp_y = y;
+	for(int index = 0; index < 4; index++){
+		if(current_morse_code[index] == 1) {
+			draw_dot(temp_x, temp_y);
+			temp_x += DOT_WIDTH + SPACE_WIDTH;
+		} else if(current_morse_code[index] == 3) {
+			draw_dash(temp_x, temp_y + DOT_WIDTH/3);
+			temp_x += DASH_WIDTH + SPACE_WIDTH;
 		}
 	}
 }
