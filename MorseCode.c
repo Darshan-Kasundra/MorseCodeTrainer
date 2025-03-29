@@ -33,7 +33,7 @@ void PS2_ISR(void);
 void KEY_ISR(void);
 void audio_ISR(void);
 void home_State(void);
-void game_State(void);
+void mode_1_State(void);
 void game_over_State(void);
 void correct_check(int letter);
 void play_morse_code(int letter);
@@ -46,12 +46,15 @@ volatile int game_time = GAME_TIME;
 volatile int KEY_dir = -1; // digit counter direction
 volatile int timer_state = 0;
 volatile int home = 1;
-volatile int game = 0;
+volatile int mode_1 = 0;
+volatile int mode_2 = 0;
 volatile int game_over = 0;
 volatile int samples_to_send = 0;
 volatile int frequency_morse_code = 800;
 volatile int audio_index = 0;
 volatile int audio_on_off = 0;
+volatile int audio_State = 0;
+volatile int played = 0;
 
 volatile int score = 0;
 volatile int current_letter = 0;
@@ -6762,6 +6765,7 @@ const int morse[26][4] = {
 	{3, 3, 1, 1}  // Z
 };
 
+const int letterToPS2Data[26] = {0x1C, 0x32, 0x21, 0x23, 0x24, 0x2B, 0x34, 0x33, 0x43, 0x3B, 0x42, 0x4B, 0x3A, 0x31, 0x44, 0x4D, 0x15, 0x2D, 0x1B, 0x2C, 0x3C, 0x2A, 0x1D, 0x22, 0x35, 0x1A};
 
 volatile int pixel_buffer_start;
 
@@ -6887,11 +6891,13 @@ int main(void) {
         set_HEX(); // display in decimal
         if(home){
             home_State();
-        } else if(game) {
-            game_State();
+        } else if(mode_1) {
+            mode_1_State();
         } else if(game_over){
             game_over_State();
-        }
+        } else if(mode_2) {
+			mode_2_State();
+		}
     }
 }
 
@@ -6931,10 +6937,10 @@ void audio_ISR(void){
 			int code = output_morse_code[audio_index];
 			if(code == 0){
 				audio_on_off = 0;
-				samples_to_send = FIFO_SAMPLE_RATE;
+				samples_to_send = FIFO_SAMPLE_RATE/2;
 			} else {
 				audio_on_off = 0xFFFFFF;
-				samples_to_send = code*FIFO_SAMPLE_RATE;
+				samples_to_send = code*(FIFO_SAMPLE_RATE/2);
 			}
 			audio_index++;
 		}
@@ -6945,7 +6951,8 @@ void itimer_ISR(void){
     volatile int * timer_ptr = (int *) TIMER_BASE;
     *timer_ptr = 0; // clear the interrupt
     if(game_time == 0){
-        game = 0;
+        mode_1 = 0;
+		mode_2 = 0;
         game_over = 1;
     }
 	game_time--;
@@ -6961,13 +6968,13 @@ void KEY_ISR(void){
     pressed = *(KEY_ptr + 3); // read EdgeCapture
     *(KEY_ptr + 3) = pressed; // clear EdgeCapture register
 	play_morse_code(7);
-	draw_background(0, 0, homepage);
-	draw_dash(50, 50);
-	draw_dot(58, 50);
-	wait_for_vsync();
 }
 
 void play_morse_code(int letter){
+	if(audio_State){
+		return;
+	}
+
 	for(int j = 0; j < 4; j++){	
 		output_morse_code[2*j] = morse[letter][j];
 	}
@@ -6989,19 +6996,22 @@ void PS2_ISR(void) {
 
 		if(home){
 			if(data == 0x16){
-				game = 1;
+				mode_1 = 1;
+				home = 0;
+			} else if(data == 0x1E){
+				mode_2 = 1;
 				home = 0;
 			}
 		}
 
 		if(game_over) {
-			if(data == 0x16){
+			if(data == 0x5A){
 				home = 1;
 				game_over = 0;
 			}
 		}
 		
-		if(game){
+		if(mode_1){
 			if(data == 0x5A){
 				correct_check(current_letter);
 				code_index = 0;
@@ -7022,6 +7032,18 @@ void PS2_ISR(void) {
 					code_index++;
 				}
 				counter = 0;
+				redraw();
+			}
+		}
+
+		if(mode_2){
+			if(data == 0x29){
+				played = 0;
+			} else if(data == letterToPS2Data[current_letter]){
+				score++;
+				srand(game_time);
+				current_letter = rand()%26;
+				played = 0;
 				redraw();
 			}
 		}
@@ -7068,10 +7090,12 @@ void set_PS2(void){
 
 void set_Audio_on(void) {
 	*(audio_ptr) = 0b10;
+	audio_State = 1;
 }
 
 void set_Audio_off(void){
 	*(audio_ptr) = 0b00;
+	audio_State = 0;
 }
 
 void set_HEX(void){
@@ -7098,7 +7122,7 @@ void home_State(void) {
     }
 }
 
-void game_State(void) {
+void mode_1_State(void) {
 	srand(game_time);
 	current_letter = rand()%26;
 
@@ -7114,13 +7138,15 @@ void game_State(void) {
 
 	counter = 0;
 	code_index = 0;
-	game = 1;
+	mode_1 = 1;
+
+	score = 0;
 
     redraw();
 
     set_HEX();
     
-    while(game) {
+    while(mode_1) {
 		*LEDR_ptr = counter;
 
 		int first_hex = bit_codes[current_morse_code[0]];
@@ -7133,6 +7159,40 @@ void game_State(void) {
 
     *(timer_ptr + 1) = 0x0;
     game_time = 0;
+    timer_state = 0;
+}
+
+void mode_2_State(void){
+	mode_1 = 0;
+	mode_2 = 1;
+	home = 0;
+	game_over = 0;
+
+	srand(game_time);
+	current_letter = rand()%26;
+
+	*HEX3_HEX0_ptr = 0x0;
+    *HEX5_HEX4_ptr = 0x0;
+
+	*(timer_ptr + 1) = 0b1111;
+    timer_state = 1;
+
+	game_time = GAME_TIME;
+
+	*LEDR_ptr = 0x0;
+
+	counter = 0;
+
+	redraw();
+
+	while(mode_2){
+		if(!played){
+			play_morse_code(current_letter);
+			played = 1;
+		}
+	}
+
+	*(timer_ptr + 1) = 0;
     timer_state = 0;
 }
 
@@ -7182,7 +7242,7 @@ void draw_current_morse_code(int x, int y){
 void redraw(void){
 	if(home){
 		draw_background(0, 0, homepage);
-	} else if(game) {	
+	} else if(mode_1) {	
 		draw_background(0, 0, mode1template);
 
 		// Draw Score
@@ -7204,6 +7264,20 @@ void redraw(void){
 		draw_current_morse_code(135, 150);
 	} else if(game_over) {
 		draw_background(0, 0, gameOverPage);
+	} else if(mode_2) {
+		draw_background(0, 0, mode1template);
+
+		// Draw Score
+		int ones_score = score%10;
+		int tens_score = (score/10)%10;
+		draw_number(52, 8, numbers[tens_score]);
+		draw_number(62, 8, numbers[ones_score]);
+
+		// Draw Timer
+		int ones_timer = game_time%10;
+		int tens_timer = (game_time/10)%10;
+		draw_number(250, 8, numbers[tens_timer]);
+		draw_number(260, 8, numbers[ones_timer]);
 	}
 	wait_for_vsync();
 }
