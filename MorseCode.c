@@ -49,6 +49,9 @@ volatile int home = 1;
 volatile int mode_1 = 0;
 volatile int mode_2 = 0;
 volatile int game_over = 0;
+volatile int instruction_page = 0;
+volatile int temp_mode_1 = 0;
+volatile int temp_mode_2 = 0;
 volatile int samples_to_send = 0;
 volatile int frequency_morse_code = 800;
 volatile int audio_index = 0;
@@ -4384,7 +4387,9 @@ int main(void) {
             game_over_State();
         } else if(mode_2) {
 			mode_2_State();
-		}
+		} else if(instruction_page){
+            instruction_State();
+        }
     }
 }
 
@@ -4483,13 +4488,23 @@ void PS2_ISR(void) {
 
 		if(home){
 			if(data == 0x16){
-				mode_1 = 1;
+				temp_mode_1 = 1;
 				home = 0;
+                instruction_page = 1;
 			} else if(data == 0x1E){
-				mode_2 = 1;
+				temp_mode_2 = 1;
 				home = 0;
+                instruction_page = 1; 
 			}
 		}
+
+        if(instruction_page){
+            if(data == 0x5A){
+                mode_1 = temp_mode_1;
+                mode_2 = temp_mode_2; 
+                instruction_page = 0; 
+            }
+        }
 
 		if(game_over) {
 			if(data == 0x5A){
@@ -4683,6 +4698,14 @@ void mode_2_State(void){
     timer_state = 0;
 }
 
+void instruction_State(void){
+    redraw();
+
+    while(instruction_page){
+
+    }
+}
+
 void game_over_State(void) {
     *HEX3_HEX0_ptr = 0x3F3F3F3F;
     *HEX5_HEX4_ptr = 0x3F;
@@ -4772,6 +4795,8 @@ void redraw(void){
 		int tens_timer = (game_time/10)%10;
 		draw_number(250, 8, numbers[tens_timer]);
 		draw_number(260, 8, numbers[ones_timer]);
-	}
+	} else if(instruction_page){
+		draw_background(0, 0, morseCodeReferencePage);
+    }
 	wait_for_vsync();
 }
