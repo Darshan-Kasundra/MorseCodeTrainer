@@ -32,7 +32,7 @@ This project uses the FPGA’s **VGA display, PS/2 keyboard, HEX displays, audio
 ---
 
 ## ⚡ How It Works
-- The program runs on the **Nios II processor** inside the FPGA.  
+- The program runs on the **RISC V processor** inside the FPGA.  
 - **Interrupts** handle:
   - `itimer_ISR` → countdown timer  
   - `KEY_ISR` → pushbutton input  
