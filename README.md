@@ -20,7 +20,7 @@ This project uses the FPGA’s **VGA display, PS/2 keyboard, HEX displays, audio
 
 ## 🛠️ Tech Stack
 - **Hardware:** Intel DE1-SoC FPGA Board  
-- **Language:** C (compiled with GCC for Nios II soft processor)  
+- **Language:** C (compiled with GCC for RISC V processor)  
 - **Peripherals Used:**  
   - VGA Controller (pixel buffer)  
   - PS/2 Keyboard interface  
